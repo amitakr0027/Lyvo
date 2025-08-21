@@ -1,35 +1,133 @@
-import { type NextRequest, NextResponse } from "next/server"
+// app/api/meetings/route.ts
+import { NextResponse } from "next/server";
+import prisma from "@/lib/prisma";
 
-// GET /api/meetings - Get user meetings
-export async function GET(request: NextRequest) {
+// ---------------- GET: /api/meetings?userId=xxx ----------------
+export async function GET(request: Request) {
   try {
-    // TODO: Implement meeting retrieval logic
-    // This is where team backend developer will add meeting logic
+    const { searchParams } = new URL(request.url);
+    const userId = searchParams.get("userId");
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: "Missing userId" },
+        { status: 400 }
+      );
+    }
 
-    return NextResponse.json({
-      success: true,
-      meetings: [],
-      message: "Meetings endpoint ready for implementation",
-    })
+    const meetings = await prisma.meeting.findMany({
+      where: {
+        OR: [
+          { hostId: userId },
+          { participants: { some: { userId } } },
+        ],
+      },
+      include: {
+        host: true,
+        participants: true,
+      },
+      orderBy: { startsAt: "asc" },
+    });
+
+    return NextResponse.json({ success: true, meetings });
   } catch (error) {
-    return NextResponse.json({ success: false, error: "Failed to fetch meetings" }, { status: 500 })
+    console.error(error);
+    return NextResponse.json(
+      { success: false, error: "Failed to fetch meetings" },
+      { status: 500 }
+    );
   }
 }
 
-// POST /api/meetings - Create new meeting
-export async function POST(request: NextRequest) {
+// ---------------- POST: /api/meetings ----------------
+export async function POST(request: Request) {
   try {
-    const body = await request.json()
+    const body = (await request.json()) as {
+      title: string;
+      startsAt: string;
+      endsAt?: string;
+      hostId: string;
+    };
 
-    // TODO: Implement meeting creation logic
-    // This is where team backend developer will add meeting creation logic
+    const { title, startsAt, endsAt, hostId } = body;
+
+    if (!title || !startsAt || !hostId) {
+      return NextResponse.json(
+        { success: false, error: "Missing required fields" },
+        { status: 400 }
+      );
+    }
+
+    // generate 6-char unique meeting code
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+
+    const meeting = await prisma.meeting.create({
+      data: {
+        title,
+        hostId,
+        code,
+        startsAt: new Date(startsAt),
+        endsAt: endsAt ? new Date(endsAt) : null,
+      },
+    });
 
     return NextResponse.json({
       success: true,
-      meetingId: "temp-id",
-      message: "Meeting creation endpoint ready for implementation",
-    })
+      meetingId: meeting.id,
+      code: meeting.code,
+    });
   } catch (error) {
-    return NextResponse.json({ success: false, error: "Failed to create meeting" }, { status: 500 })
+    console.error(error);
+    return NextResponse.json(
+      { success: false, error: "Failed to create meeting" },
+      { status: 500 }
+    );
+  }
+}
+
+// ---------------- PATCH: /api/meetings/join ----------------
+export async function PATCH(request: Request) {
+  try {
+    const body = (await request.json()) as {
+      userId: string;
+      meetingId: string;
+      name?: string;
+      email?: string;
+    };
+
+    const { userId, meetingId, name, email } = body;
+
+    if (!meetingId || !userId) {
+      return NextResponse.json(
+        { success: false, error: "Missing userId or meetingId" },
+        { status: 400 }
+      );
+    }
+
+    // check if already joined
+    const existing = await prisma.participant.findFirst({
+      where: { userId, meetingId },
+    });
+
+    if (existing) {
+      return NextResponse.json({ success: true, message: "Already joined" });
+    }
+
+    const participant = await prisma.participant.create({
+      data: {
+        userId,
+        meetingId,
+        name: name ?? "Guest",
+        email: email ?? null,
+        joinedAt: new Date(),
+      },
+    });
+
+    return NextResponse.json({ success: true, participant });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json(
+      { success: false, error: "Failed to join meeting" },
+      { status: 500 }
+    );
   }
 }
