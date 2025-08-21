@@ -1,0 +1,127 @@
+// schema.prisma
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+//
+// 🔑 MODELS
+//
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  name          String?
+  avatarUrl     String?
+  role          Role           @default(PARTICIPANT)
+  language      String         @default("en")
+  timezone      String         @default("Asia/Kolkata")
+  meetingsHost  Meeting[]      @relation("HostedMeetings")
+  participants  Participant[]
+  notifications Notification[]
+  createdAt     DateTime       @default(now())
+}
+
+model Meeting {
+  id           String             @id @default(cuid())
+  title        String
+  code         String             @unique
+  startsAt     DateTime
+  endsAt       DateTime?
+  status       MeetingStatus      @default(SCHEDULED)
+  host         User               @relation("HostedMeetings", fields: [hostId], references: [id])
+  hostId       String
+  participants Participant[]
+  messages     Message[]
+  transcripts  TranscriptSegment[]
+  summaries    Summary[]
+  recordingUrl String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+}
+
+model Participant {
+  id        String   @id @default(cuid())
+  meeting   Meeting  @relation(fields: [meetingId], references: [id])
+  meetingId String
+  user      User?    @relation(fields: [userId], references: [id])
+  userId    String?
+  name      String
+  email     String?
+  role      Role     @default(PARTICIPANT)
+  joinedAt  DateTime?
+  leftAt    DateTime?
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  meeting    Meeting  @relation(fields: [meetingId], references: [id])
+  meetingId  String
+  senderId   String?
+  senderName String
+  text       String
+  createdAt  DateTime @default(now())
+
+  @@index([meetingId, createdAt])
+}
+
+model TranscriptSegment {
+  id        String   @id @default(cuid())
+  meeting   Meeting  @relation(fields: [meetingId], references: [id])
+  meetingId String
+  speaker   String?
+  lang      String
+  text      String
+  startMs   Int
+  endMs     Int
+  createdAt DateTime @default(now())
+
+  @@index([meetingId, startMs])
+}
+
+model Summary {
+  id         String   @id @default(cuid())
+  meeting    Meeting  @relation(fields: [meetingId], references: [id])
+  meetingId  String
+  type       SummaryType
+  contentMd  String
+  perUserJSON Json
+  audioUrl   String?
+  createdAt  DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  kind      String   // EMAIL | PUSH | IN_APP
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+//
+// 🔖 ENUMS
+//
+
+enum Role {
+  HOST
+  PARTICIPANT
+}
+
+enum MeetingStatus {
+  SCHEDULED
+  LIVE
+  ENDED
+}
+
+enum SummaryType {
+  POST_MEETING
+  LATE_RECAP
+}
