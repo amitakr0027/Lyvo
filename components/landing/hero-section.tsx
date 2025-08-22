@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Play, ArrowRight } from "lucide-react"
 
@@ -36,17 +37,23 @@ export function HeroSection() {
             <Button
               size="lg"
               className="bg-primary hover:bg-primary/90 text-primary-foreground px-8 py-4 text-lg font-semibold transition-all duration-300 hover:scale-105 hover:shadow-lg group"
+              asChild
             >
-              Start for Free
-              <ArrowRight className="ml-2 h-5 w-5 transition-transform duration-300 group-hover:translate-x-1" />
+              <Link href="/signup">
+                Start for Free
+                <ArrowRight className="ml-2 h-5 w-5 transition-transform duration-300 group-hover:translate-x-1" />
+              </Link>
             </Button>
             <Button
               size="lg"
               variant="outline"
               className="border-primary/20 text-primary hover:bg-primary/10 px-8 py-4 text-lg font-semibold bg-transparent transition-all duration-300 hover:scale-105 hover:shadow-lg hover:border-primary/40 group"
+              asChild
             >
-              <Play className="mr-2 h-5 w-5 transition-transform duration-300 group-hover:scale-110" />
-              Watch Demo
+              <Link href="/demo">
+                <Play className="mr-2 h-5 w-5 transition-transform duration-300 group-hover:scale-110" />
+                Watch Demo
+              </Link>
             </Button>
           </div>
 

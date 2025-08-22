@@ -1,3 +1,4 @@
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Check } from "lucide-react"
@@ -68,69 +69,73 @@ export function PricingSection() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-          {plans.map((plan, index) => (
-            <Card
-              key={index}
-              className={`relative border-border/50 bg-card/50 backdrop-blur hover:shadow-2xl transition-all duration-500 hover:scale-105 hover:-translate-y-2 group cursor-pointer ${
-                plan.popular ? "ring-2 ring-primary/50 scale-105" : ""
-              }`}
-            >
-              {plan.popular && (
-                <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-gradient-to-r from-primary to-secondary text-white px-4 py-1 rounded-full text-sm font-medium animate-pulse">
-                  Most Popular
-                </div>
-              )}
+          {plans.map((plan, index) => {
+            const href = plan.name === "Enterprise" ? "/contact" : "/signup"
+            return (
+              <Card
+                key={index}
+                className={`relative border-border/50 bg-card/50 backdrop-blur hover:shadow-2xl transition-all duration-500 hover:scale-105 hover:-translate-y-2 group cursor-pointer ${
+                  plan.popular ? "ring-2 ring-primary/50 scale-105" : ""
+                }`}
+              >
+                {plan.popular && (
+                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-gradient-to-r from-primary to-secondary text-white px-4 py-1 rounded-full text-sm font-medium animate-pulse">
+                    Most Popular
+                  </div>
+                )}
 
-              <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-primary/0 via-primary/5 to-secondary/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+                <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-primary/0 via-primary/5 to-secondary/0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
 
-              <CardHeader className="text-center pb-8 pt-8 relative z-10">
-                <CardTitle className="text-2xl font-bold text-foreground mb-2 transition-colors duration-300 group-hover:text-primary">
-                  {plan.name}
-                </CardTitle>
-                <div className="mb-4">
-                  <span className="text-4xl font-bold text-foreground transition-all duration-300 group-hover:scale-110 inline-block">
-                    {plan.price}
-                  </span>
-                  {plan.period && (
-                    <span className="text-muted-foreground ml-1 transition-colors duration-300 group-hover:text-foreground/80">
-                      /{plan.period}
+                <CardHeader className="text-center pb-8 pt-8 relative z-10">
+                  <CardTitle className="text-2xl font-bold text-foreground mb-2 transition-colors duration-300 group-hover:text-primary">
+                    {plan.name}
+                  </CardTitle>
+                  <div className="mb-4">
+                    <span className="text-4xl font-bold text-foreground transition-all duration-300 group-hover:scale-110 inline-block">
+                      {plan.price}
                     </span>
-                  )}
-                </div>
-                <p className="text-muted-foreground transition-colors duration-300 group-hover:text-foreground/80">
-                  {plan.description}
-                </p>
-              </CardHeader>
-
-              <CardContent className="pt-0 relative z-10">
-                <ul className="space-y-3 mb-8">
-                  {plan.features.map((feature, featureIndex) => (
-                    <li
-                      key={featureIndex}
-                      className="flex items-center space-x-3 transition-all duration-300 hover:translate-x-2 hover:bg-muted/30 p-2 rounded-lg"
-                      style={{ transitionDelay: `${featureIndex * 50}ms` }}
-                    >
-                      <Check className="h-4 w-4 text-primary flex-shrink-0 transition-all duration-300 group-hover:scale-110" />
-                      <span className="text-foreground transition-colors duration-300 group-hover:text-primary/80">
-                        {feature}
+                    {plan.period && (
+                      <span className="text-muted-foreground ml-1 transition-colors duration-300 group-hover:text-foreground/80">
+                        /{plan.period}
                       </span>
-                    </li>
-                  ))}
-                </ul>
+                    )}
+                  </div>
+                  <p className="text-muted-foreground transition-colors duration-300 group-hover:text-foreground/80">
+                    {plan.description}
+                  </p>
+                </CardHeader>
 
-                <Button
-                  className={`w-full transition-all duration-300 hover:scale-105 hover:shadow-xl ${
-                    plan.popular
-                      ? "bg-primary hover:bg-primary/90 text-primary-foreground hover:shadow-primary/25"
-                      : "bg-secondary hover:bg-secondary/90 text-secondary-foreground hover:shadow-secondary/25"
-                  }`}
-                  size="lg"
-                >
-                  {plan.cta}
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
+                <CardContent className="pt-0 relative z-10">
+                  <ul className="space-y-3 mb-8">
+                    {plan.features.map((feature, featureIndex) => (
+                      <li
+                        key={featureIndex}
+                        className="flex items-center space-x-3 transition-all duration-300 hover:translate-x-2 hover:bg-muted/30 p-2 rounded-lg"
+                        style={{ transitionDelay: `${featureIndex * 50}ms` }}
+                      >
+                        <Check className="h-4 w-4 text-primary flex-shrink-0 transition-all duration-300 group-hover:scale-110" />
+                        <span className="text-foreground transition-colors duration-300 group-hover:text-primary/80">
+                          {feature}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <Button
+                    className={`w-full transition-all duration-300 hover:scale-105 hover:shadow-xl ${
+                      plan.popular
+                        ? "bg-primary hover:bg-primary/90 text-primary-foreground hover:shadow-primary/25"
+                        : "bg-secondary hover:bg-secondary/90 text-secondary-foreground hover:shadow-secondary/25"
+                    }`}
+                    size="lg"
+                    asChild
+                  >
+                    <Link href={href}>{plan.cta}</Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            )
+          })}
         </div>
       </div>
     </section>
