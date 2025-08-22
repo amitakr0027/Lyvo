@@ -1,133 +1,40 @@
-// app/api/meetings/route.ts
-import { NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import { NextRequest, NextResponse } from "next/server";
+import { db, auth } from "@/lib/firebase";
+import { collection, addDoc, query, where, getDocs, serverTimestamp } from "firebase/firestore";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
 
-// ---------------- GET: /api/meetings?userId=xxx ----------------
-export async function GET(request: Request) {
+export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const userId = searchParams.get("userId");
-    if (!userId) {
-      return NextResponse.json(
-        { success: false, error: "Missing userId" },
-        { status: 400 }
-      );
-    }
+    // Get user email from query param (frontend can send ?email=user@example.com)
+    const url = new URL(req.url);
+    const userEmail = url.searchParams.get("email");
+    if (!userEmail) return NextResponse.json({ error: "No user email provided" }, { status: 400 });
 
-    const meetings = await prisma.meeting.findMany({
-      where: {
-        OR: [
-          { hostId: userId },
-          { participants: { some: { userId } } },
-        ],
-      },
-      include: {
-        host: true,
-        participants: true,
-      },
-      orderBy: { startsAt: "asc" },
-    });
-
-    return NextResponse.json({ success: true, meetings });
-  } catch (error) {
-    console.error(error);
-    return NextResponse.json(
-      { success: false, error: "Failed to fetch meetings" },
-      { status: 500 }
-    );
+    const q = query(collection(db, "meetings"), where("host", "==", userEmail));
+    const snapshot = await getDocs(q);
+    const meetings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    return NextResponse.json(meetings);
+  } catch (err) {
+    return NextResponse.json({ error: "Failed to fetch meetings" }, { status: 500 });
   }
 }
 
-// ---------------- POST: /api/meetings ----------------
-export async function POST(request: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const body = (await request.json()) as {
-      title: string;
-      startsAt: string;
-      endsAt?: string;
-      hostId: string;
-    };
+    const body = await req.json();
+    const { title, status, email } = body;
 
-    const { title, startsAt, endsAt, hostId } = body;
+    if (!email) return NextResponse.json({ error: "No user email provided" }, { status: 400 });
 
-    if (!title || !startsAt || !hostId) {
-      return NextResponse.json(
-        { success: false, error: "Missing required fields" },
-        { status: 400 }
-      );
-    }
-
-    // generate 6-char unique meeting code
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-
-    const meeting = await prisma.meeting.create({
-      data: {
-        title,
-        hostId,
-        code,
-        startsAt: new Date(startsAt),
-        endsAt: endsAt ? new Date(endsAt) : null,
-      },
+    const docRef = await addDoc(collection(db, "meetings"), {
+      title,
+      status,
+      host: email,
+      createdAt: serverTimestamp(),
     });
 
-    return NextResponse.json({
-      success: true,
-      meetingId: meeting.id,
-      code: meeting.code,
-    });
-  } catch (error) {
-    console.error(error);
-    return NextResponse.json(
-      { success: false, error: "Failed to create meeting" },
-      { status: 500 }
-    );
-  }
-}
-
-// ---------------- PATCH: /api/meetings/join ----------------
-export async function PATCH(request: Request) {
-  try {
-    const body = (await request.json()) as {
-      userId: string;
-      meetingId: string;
-      name?: string;
-      email?: string;
-    };
-
-    const { userId, meetingId, name, email } = body;
-
-    if (!meetingId || !userId) {
-      return NextResponse.json(
-        { success: false, error: "Missing userId or meetingId" },
-        { status: 400 }
-      );
-    }
-
-    // check if already joined
-    const existing = await prisma.participant.findFirst({
-      where: { userId, meetingId },
-    });
-
-    if (existing) {
-      return NextResponse.json({ success: true, message: "Already joined" });
-    }
-
-    const participant = await prisma.participant.create({
-      data: {
-        userId,
-        meetingId,
-        name: name ?? "Guest",
-        email: email ?? null,
-        joinedAt: new Date(),
-      },
-    });
-
-    return NextResponse.json({ success: true, participant });
-  } catch (error) {
-    console.error(error);
-    return NextResponse.json(
-      { success: false, error: "Failed to join meeting" },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: true, id: docRef.id });
+  } catch (err) {
+    return NextResponse.json({ error: "Failed to create meeting" }, { status: 500 });
   }
 }
