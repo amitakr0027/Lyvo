@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import Link from "next/link";
+import { connectSocket } from "@/lib/socket";
+import { useRouter } from "next/navigation";
 
 interface Meeting {
   id: string;
@@ -18,11 +20,12 @@ export default function MeetingsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "live" | "scheduled" | "past">("all");
+  const router = useRouter();
 
-  // Fetch meetings
-  const fetchMeetings = async (email: string) => {
+  // Fetch all meetings (sab users ke liye)
+  const fetchMeetings = async () => {
     try {
-      const res = await fetch(`/api/meetings?email=${email}`);
+      const res = await fetch(`/api/meetings`);
       const data: Meeting[] = await res.json();
       setMeetings(data);
     } catch (err) {
@@ -33,20 +36,31 @@ export default function MeetingsPage() {
   };
 
   useEffect(() => {
-    onAuthStateChanged(auth, (user) => {
+    // Firebase auth check
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user && user.email) {
         setUserEmail(user.email);
-        fetchMeetings(user.email);
+        fetchMeetings();
       } else {
         setLoading(false);
       }
     });
+
+    // Socket.io setup
+    const socket = connectSocket();
+    socket.on("meetingCreated", (meeting: Meeting) => {
+      setMeetings((prev) => [meeting, ...prev]); // nayi meeting top pe show
+    });
+
+    return () => {
+      unsubscribe();
+      socket.off("meetingCreated");
+    };
   }, []);
 
   // Delete meeting
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this meeting?")) return;
-
     try {
       const res = await fetch(`/api/meetings/${id}`, { method: "DELETE" });
       if (res.ok) {
@@ -59,12 +73,6 @@ export default function MeetingsPage() {
       console.error(err);
       alert("Error deleting meeting");
     }
-  };
-
-  // Handle search
-  const handleSearch = () => {
-    // Currently frontend filter; optional backend fetch possible
-    console.log("Search triggered:", search);
   };
 
   // Filter + search
@@ -87,17 +95,8 @@ export default function MeetingsPage() {
             placeholder="Search meetings..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
             className="flex-1 px-4 py-2 border rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-white"
           />
-
-          {/* Search button */}
-          <button
-            onClick={handleSearch}
-            className="px-4 py-2 bg-blue-600 text-white rounded-r-lg hover:bg-blue-700 transition"
-          >
-            🔍
-          </button>
 
           {/* Create Meeting */}
           <Link

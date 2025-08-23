@@ -1,175 +1,193 @@
+// app/meeting/[id]/page.tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { getAuth } from "firebase/auth";
+import { io, Socket } from "socket.io-client";
+import { VideoGrid } from "@/components/meeting/video-grid";
+import { MeetingControls } from "@/components/meeting/meeting-controls";
 
 interface Participant {
   id: string;
   stream?: MediaStream;
+  email?: string;
+  micOn?: boolean;
+  camOn?: boolean;
+  isHost?: boolean;
 }
 
 export default function MeetingPage({ params }: { params: { id: string } }) {
   const router = useRouter();
+  const meetingId = params.id;
+
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const pcsRef = useRef<Record<string, RTCPeerConnection>>({});
+  const socketRef = useRef<Socket | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
-  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const [hostId, setHostId] = useState<string>("");
 
-  const MAX_PARTICIPANTS = 6;
+  const auth = getAuth();
+  const user = auth.currentUser;
+  const userId = user?.uid || `guest-${Date.now()}`;
+  const userEmail = user?.email || `guest@example.com`;
 
-  // Function to initialize camera + mic
-  const initLocalStream = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
-      setLocalStream(stream);
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-      }
-
-      setParticipants([{ id: "You", stream }]);
-    } catch (err) {
-      console.error("Camera/Mic access failed:", err);
-      alert("Please allow camera and microphone access!");
-      router.push("/meetings");
-    }
-  };
-
-  // On mount → start camera + mic
   useEffect(() => {
-    initLocalStream();
-  }, []);
-
-  // Toggle Mic
-  const toggleMic = async () => {
-    if (!localStream) return;
-
-    if (micOn) {
-      // Stop audio tracks completely
-      localStream.getAudioTracks().forEach((track) => track.stop());
-      setMicOn(false);
-    } else {
-      // Reinitialize stream with audio
-      const newStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // Merge with existing video track
-      if (localStream.getVideoTracks().length > 0) {
-        newStream.addTrack(localStream.getVideoTracks()[0]);
-      }
-      setLocalStream(newStream);
-      if (localVideoRef.current) localVideoRef.current.srcObject = newStream;
-      setMicOn(true);
+    if (!user) {
+      alert("Sign in to join the meeting");
+      router.push("/auth/signin");
+      return;
     }
-  };
 
-  // Toggle Camera
-  const toggleCam = async () => {
-    if (!localStream) return;
+    const init = async () => {
+      // 1. Connect socket
+      const socket = io("/", { path: "/api/socketio" });
+      socketRef.current = socket;
 
-    if (camOn) {
-      // Stop video tracks completely
-      localStream.getVideoTracks().forEach((track) => track.stop());
-      setCamOn(false);
-    } else {
-      // Reinitialize stream with video
-      const newStream = await navigator.mediaDevices.getUserMedia({ video: true });
-      // Merge with existing audio track
-      if (localStream.getAudioTracks().length > 0) {
-        newStream.addTrack(localStream.getAudioTracks()[0]);
+      // 2. Get local media
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      localStreamRef.current = stream;
+      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+
+      // 3. Add self
+      setParticipants([{ id: userId, stream, email: userEmail, isHost: true }]);
+      setHostId(userId);
+
+      // 4. Join meeting
+      socket.emit("join-meeting", { meetingId, userId, email: userEmail });
+
+      // 5. Existing participants
+      socket.on("existing-participants", (ids: string[]) => {
+        ids.forEach(id => createPeerConnection(id, socket, stream, true));
+      });
+
+      // 6. New participant joins
+      socket.on("new-participant", ({ userId: id, email }: { userId: string; email: string }) => {
+        createPeerConnection(id, socket, stream, false, email);
+      });
+
+      // 7. Offer received
+      socket.on("offer", async ({ sdp, fromId }: { sdp: RTCSessionDescriptionInit; fromId: string }) => {
+        const pc = createPeerConnection(fromId, socket, stream, false);
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit("answer", { targetId: fromId, sdp: answer, fromId: userId });
+      });
+
+      // 8. Answer received
+      socket.on("answer", async ({ sdp, fromId }: { sdp: RTCSessionDescriptionInit; fromId: string }) => {
+        const pc = pcsRef.current[fromId];
+        if (!pc) return;
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      });
+
+      // 9. ICE candidate received
+      socket.on("ice-candidate", ({ candidate, fromId }: { candidate: RTCIceCandidateInit; fromId: string }) => {
+        const pc = pcsRef.current[fromId];
+        if (!pc) return;
+        pc.addIceCandidate(new RTCIceCandidate(candidate));
+      });
+
+      // 10. Participant left
+      socket.on("participant-left", ({ userId }: { userId: string }) => {
+        pcsRef.current[userId]?.close();
+        delete pcsRef.current[userId];
+        setParticipants(prev => prev.filter(p => p.id !== userId));
+      });
+    };
+
+    init();
+
+    return () => {
+      // Leave meeting
+      socketRef.current?.emit("leave-meeting", { meetingId, userId });
+      Object.values(pcsRef.current).forEach(pc => pc.close());
+      socketRef.current?.disconnect();
+    };
+  }, [router, user, meetingId, userId, userEmail]);
+
+  const createPeerConnection = (
+    id: string,
+    socket: Socket,
+    localStream: MediaStream,
+    isOffer: boolean,
+    email?: string
+  ): RTCPeerConnection => {
+    if (pcsRef.current[id]) return pcsRef.current[id];
+
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+    pcsRef.current[id] = pc;
+
+    // Add local tracks
+    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+    // Remote track
+    pc.ontrack = (event: RTCTrackEvent) => {
+      setParticipants(prev => [
+        ...prev.filter(p => p.id !== id),
+        { id, stream: event.streams[0], email },
+      ]);
+    };
+
+    // ICE candidates
+    pc.onicecandidate = (event: RTCPeerConnectionIceEvent) => {
+      if (event.candidate) {
+        socket.emit("ice-candidate", { targetId: id, candidate: event.candidate, fromId: userId });
       }
-      setLocalStream(newStream);
-      if (localVideoRef.current) localVideoRef.current.srcObject = newStream;
-      setCamOn(true);
+    };
+
+    // Create offer
+    if (isOffer) {
+      pc.createOffer().then(offer => {
+        pc.setLocalDescription(offer);
+        socket.emit("offer", { targetId: id, sdp: offer, fromId: userId });
+      });
     }
+
+    return pc;
   };
 
-  // Demo: Add dummy participants
-  const addParticipant = () => {
-    if (participants.length >= MAX_PARTICIPANTS) return;
-    setParticipants((prev) => [...prev, { id: `User${prev.length + 1}` }]);
+  const toggleMic = () => {
+    if (!localStreamRef.current) return;
+    const enabled = !micOn;
+    localStreamRef.current.getAudioTracks().forEach(t => (t.enabled = enabled));
+    setMicOn(enabled);
   };
 
-  const removeParticipant = (id: string) => {
-    setParticipants((prev) => prev.filter((p) => p.id !== id));
+  const toggleCam = () => {
+    if (!localStreamRef.current) return;
+    const enabled = !camOn;
+    localStreamRef.current.getVideoTracks().forEach(t => (t.enabled = enabled));
+    setCamOn(enabled);
+  };
+
+  const leaveMeeting = () => {
+    socketRef.current?.emit("leave-meeting", { meetingId, userId });
+    Object.values(pcsRef.current).forEach(pc => pc.close());
+    router.push("/meetings");
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
-      <h1 className="text-2xl font-bold text-gray-800 dark:text-white mb-4">
-        Meeting ID: {params.id}
+    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-4 relative">
+      <h1 className="text-xl font-semibold text-gray-800 dark:text-white mb-4">
+        Meeting Room: <span className="font-mono">{meetingId}</span>
       </h1>
 
-      {/* Controls */}
-      <div className="flex gap-4 mb-4">
-        <button
-          onClick={toggleMic}
-          className={`px-4 py-2 rounded ${micOn ? "bg-green-600" : "bg-red-500"} text-white hover:opacity-90 transition`}
-        >
-          {micOn ? "Mic On" : "Mic Off"}
-        </button>
+      <VideoGrid participants={participants} localVideoRef={localVideoRef} onRemove={() => {}} hostId={hostId} />
 
-        <button
-          onClick={toggleCam}
-          className={`px-4 py-2 rounded ${camOn ? "bg-green-600" : "bg-red-500"} text-white hover:opacity-90 transition`}
-        >
-          {camOn ? "Cam On" : "Cam Off"}
-        </button>
+      <MeetingControls
+        micOn={micOn}
+        camOn={camOn}
+        onToggleMic={toggleMic}
+        onToggleCam={toggleCam}
+        onLeave={leaveMeeting}
+      />
 
-        {participants.length < MAX_PARTICIPANTS && (
-          <button
-            onClick={addParticipant}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-          >
-            Add Participant (Demo)
-          </button>
-        )}
-      </div>
-
-      {/* Video Grid */}
-      <div
-        className={`grid gap-4 ${
-          participants.length === 1
-            ? "grid-cols-1"
-            : participants.length === 2
-            ? "grid-cols-2"
-            : "grid-cols-2 md:grid-cols-3"
-        }`}
-      >
-        {participants.map((p) => (
-          <div
-            key={p.id}
-            className="bg-black rounded-lg relative overflow-hidden shadow-lg"
-          >
-            {p.id === "You" ? (
-              <video
-                ref={localVideoRef}
-                autoPlay
-                muted
-                className="w-full h-48 object-cover"
-              />
-            ) : (
-              <div className="w-full h-48 bg-gray-700 flex items-center justify-center text-white font-semibold">
-                {p.id} Video
-              </div>
-            )}
-
-            <span className="absolute bottom-2 left-2 px-2 py-1 bg-black bg-opacity-50 text-white text-sm rounded">
-              {p.id}
-            </span>
-
-            {p.id !== "You" && (
-              <button
-                onClick={() => removeParticipant(p.id)}
-                className="absolute top-2 right-2 bg-red-500 px-2 py-1 text-white rounded text-xs"
-              >
-                Remove
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
+      <video ref={localVideoRef} autoPlay muted className="hidden" />
     </div>
   );
 }
