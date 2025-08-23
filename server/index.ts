@@ -15,20 +15,16 @@ interface Participant {
 
 const rooms: { [key: string]: Participant[] } = {};
 
-// Connection handler
 io.on("connection", (socket) => {
   console.log("New socket connected:", socket.id);
 
   socket.on("join-room", ({ roomId, userId }) => {
     socket.join(roomId);
-
     if (!rooms[roomId]) rooms[roomId] = [];
     rooms[roomId].push({ id: userId, socketId: socket.id });
 
-    // Notify other participants
     socket.to(roomId).emit("user-joined", { id: userId, socketId: socket.id });
 
-    // Relay signals
     socket.on("signal", (data) => {
       io.to(data.to).emit("signal", { from: socket.id, signal: data.signal });
     });

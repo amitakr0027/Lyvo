@@ -1,4 +1,3 @@
-// app/meeting/[id]/page.tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -25,6 +24,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
   const localStreamRef = useRef<MediaStream | null>(null);
   const pcsRef = useRef<Record<string, RTCPeerConnection>>({});
   const socketRef = useRef<Socket | null>(null);
+
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
@@ -43,17 +43,17 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     }
 
     const init = async () => {
-      // 1. Connect socket
+      // 1. Socket connection
       const socket = io("/", { path: "/api/socketio" });
       socketRef.current = socket;
 
-      // 2. Get local media
+      // 2. Local media
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       localStreamRef.current = stream;
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
 
-      // 3. Add self
-      setParticipants([{ id: userId, stream, email: userEmail, isHost: true }]);
+      // 3. Add local participant
+      setParticipants([{ id: userId, stream, email: userEmail, micOn: true, camOn: true, isHost: true }]);
       setHostId(userId);
 
       // 4. Join meeting
@@ -69,7 +69,7 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
         createPeerConnection(id, socket, stream, false, email);
       });
 
-      // 7. Offer received
+      // 7. Offer
       socket.on("offer", async ({ sdp, fromId }: { sdp: RTCSessionDescriptionInit; fromId: string }) => {
         const pc = createPeerConnection(fromId, socket, stream, false);
         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
@@ -78,14 +78,14 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
         socket.emit("answer", { targetId: fromId, sdp: answer, fromId: userId });
       });
 
-      // 8. Answer received
+      // 8. Answer
       socket.on("answer", async ({ sdp, fromId }: { sdp: RTCSessionDescriptionInit; fromId: string }) => {
         const pc = pcsRef.current[fromId];
         if (!pc) return;
         await pc.setRemoteDescription(new RTCSessionDescription(sdp));
       });
 
-      // 9. ICE candidate received
+      // 9. ICE candidates
       socket.on("ice-candidate", ({ candidate, fromId }: { candidate: RTCIceCandidateInit; fromId: string }) => {
         const pc = pcsRef.current[fromId];
         if (!pc) return;
@@ -103,7 +103,6 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     init();
 
     return () => {
-      // Leave meeting
       socketRef.current?.emit("leave-meeting", { meetingId, userId });
       Object.values(pcsRef.current).forEach(pc => pc.close());
       socketRef.current?.disconnect();
@@ -122,25 +121,25 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
     pcsRef.current[id] = pc;
 
-    // Add local tracks
+    // Local tracks
     localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
     // Remote track
     pc.ontrack = (event: RTCTrackEvent) => {
       setParticipants(prev => [
         ...prev.filter(p => p.id !== id),
-        { id, stream: event.streams[0], email },
+        { id, stream: event.streams[0], email, micOn: true, camOn: true },
       ]);
     };
 
-    // ICE candidates
+    // ICE candidate
     pc.onicecandidate = (event: RTCPeerConnectionIceEvent) => {
       if (event.candidate) {
         socket.emit("ice-candidate", { targetId: id, candidate: event.candidate, fromId: userId });
       }
     };
 
-    // Create offer
+    // Offer
     if (isOffer) {
       pc.createOffer().then(offer => {
         pc.setLocalDescription(offer);
@@ -171,17 +170,30 @@ export default function MeetingPage({ params }: { params: { id: string } }) {
     router.push("/meetings");
   };
 
+  const removeParticipant = (id: string) => {
+    pcsRef.current[id]?.close();
+    delete pcsRef.current[id];
+    setParticipants(prev => prev.filter(p => p.id !== id));
+    socketRef.current?.emit("remove-participant", { meetingId, userId: id });
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-4 relative">
       <h1 className="text-xl font-semibold text-gray-800 dark:text-white mb-4">
         Meeting Room: <span className="font-mono">{meetingId}</span>
       </h1>
 
-      <VideoGrid participants={participants} localVideoRef={localVideoRef} onRemove={() => {}} hostId={hostId} />
+      <VideoGrid
+        participants={participants}
+        localVideoRef={localVideoRef}
+        onRemove={removeParticipant}
+        hostId={hostId}
+      />
 
       <MeetingControls
         micOn={micOn}
         camOn={camOn}
+        isHost={userId === hostId}
         onToggleMic={toggleMic}
         onToggleCam={toggleCam}
         onLeave={leaveMeeting}
