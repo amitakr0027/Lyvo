@@ -18,11 +18,45 @@ interface VideoGridProps {
   hostId: string;
 }
 
-export function VideoGrid({ participants, localVideoRef, onRemove, hostId }: VideoGridProps) {
+export function VideoGrid({ participants, onRemove, hostId }: VideoGridProps) {
+  if (participants.length === 1) {
+    const p = participants[0];
+    return (
+      <div className="flex justify-center items-center h-[70vh]">
+        <div className="relative bg-black rounded-lg overflow-hidden shadow-lg w-[60vw] h-[60vh] flex justify-center items-center">
+          {p.camOn && p.stream ? (
+            <video
+              autoPlay
+              playsInline
+              ref={(el) => {
+                if (el && p.stream) el.srcObject = p.stream;
+              }}
+              className="w-full h-full object-contain"
+            />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center bg-gray-800 text-white">
+              <VideoOff className="w-8 h-8 mb-2" />
+              <span className="text-sm md:text-base">Camera Off</span>
+            </div>
+          )}
+
+          <div className="absolute bottom-2 left-2 flex items-center gap-2 bg-black/60 px-2 py-1 rounded text-white text-sm">
+            <span>{p.email || p.id}</span>
+            {p.micOn ? <Mic className="w-4 h-4 text-green-400" /> : <MicOff className="w-4 h-4 text-red-400" />}
+          </div>
+
+          {p.isHost && (
+            <div className="absolute top-2 left-2 bg-yellow-500 text-black px-1 py-0.5 text-xs rounded">
+              Host
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const gridCols =
-    participants.length === 1
-      ? "grid-cols-1"
-      : participants.length === 2
+    participants.length === 2
       ? "grid-cols-2"
       : participants.length <= 4
       ? "grid-cols-2 md:grid-cols-2"
@@ -67,7 +101,9 @@ export function VideoGrid({ participants, localVideoRef, onRemove, hostId }: Vid
           )}
 
           {p.isHost && (
-            <div className="absolute top-2 left-2 bg-yellow-500 text-black px-1 py-0.5 text-xs rounded">Host</div>
+            <div className="absolute top-2 left-2 bg-yellow-500 text-black px-1 py-0.5 text-xs rounded">
+              Host
+            </div>
           )}
         </div>
       ))}
