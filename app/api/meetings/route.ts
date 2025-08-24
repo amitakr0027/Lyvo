@@ -1,47 +1,65 @@
 // app/api/meetings/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
-import { collection, addDoc, getDocs, serverTimestamp } from "firebase/firestore";
-import { emitMeetingCreated } from "@/server/index"; // import helper
+import { NextResponse } from 'next/server';
+import dbConnect from '@/lib/mongodb';
+import Meeting from '@/models/Meeting';
 
-// GET → return all meetings
-export async function GET(req: NextRequest) {
+export async function GET() {
   try {
-    const snapshot = await getDocs(collection(db, "meetings"));
-    const meetings = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    return NextResponse.json(meetings);
-  } catch (err) {
-    console.error("GET meetings error:", err);
-    return NextResponse.json({ error: "Failed to fetch meetings" }, { status: 500 });
+    await dbConnect();
+    
+    const meetings = await Meeting.find({})
+      .sort({ createdAt: -1 })
+      .lean();
+    
+    return NextResponse.json({ meetings });
+  } catch (error) {
+    console.error('Error fetching meetings:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch meetings' }, 
+      { status: 500 }
+    );
   }
 }
 
-// POST → create new meeting + emit socket event
-export async function POST(req: NextRequest) {
+// app/api/meetings/route.ts (add POST method)
+export async function POST(request: Request) {
   try {
-    const body = await req.json();
-    const { title, status, email } = body;
+    await dbConnect();
+    
+    const { title, transcript, duration, participants } = await request.json();
+    
+    if (!title || !transcript) {
+      return NextResponse.json(
+        { error: 'Title and transcript are required' },
+        { status: 400 }
+      );
+    }
 
-    if (!email) return NextResponse.json({ error: "No user email provided" }, { status: 400 });
-
-    const docRef = await addDoc(collection(db, "meetings"), {
+    // Generate AI summary
+    const aiSummary = await generateMeetingSummary(transcript, title);
+    
+    // Create meeting in database
+    const meeting = await Meeting.create({
       title,
-      status,
-      host: email,
-      createdAt: serverTimestamp(),
+      date: new Date(),
+      duration: duration || 60,
+      participants: participants || 1,
+      transcript,
+      summary: aiSummary.summary,
+      keyPoints: aiSummary.keyPoints,
+      actionItems: aiSummary.actionItems,
+      sentiment: aiSummary.sentiment
     });
 
-    // 🔥 Emit event to all connected clients
-    emitMeetingCreated({
-      id: docRef.id,
-      title,
-      status,
-      host: email,
-    });
-
-    return NextResponse.json({ success: true, id: docRef.id });
-  } catch (err) {
-    console.error("POST meetings error:", err);
-    return NextResponse.json({ error: "Failed to create meeting" }, { status: 500 });
+    return NextResponse.json(
+      { message: 'Meeting summary created successfully', meeting },
+      { status: 201 }
+    );
+  } catch (error) {
+    console.error('Error creating meeting summary:', error);
+    return NextResponse.json(
+      { error: 'Failed to create meeting summary' },
+      { status: 500 }
+    );
   }
 }
