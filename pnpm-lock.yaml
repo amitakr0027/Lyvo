@@ -11,6 +11,9 @@ importers:
       '@clerk/nextjs':
         specifier: ^6.31.4
         version: 6.31.4(next@15.2.4(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
+      '@firebase/auth':
+        specifier: ^1.11.0
+        version: 1.11.0(@firebase/app@0.14.1)
       '@hookform/resolvers':
         specifier: ^3.10.0
         version: 3.10.0(react-hook-form@7.62.0(react@19.1.1))
